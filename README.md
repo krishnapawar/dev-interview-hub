@@ -28,11 +28,11 @@ npm run preview
 ```
 
 ## Deploy to GitHub Pages
-1. Create a new GitHub repository named `dev-interview-prep` under `krishnapawar` and push this project to its `main` branch.
-2. `vite.config.js` is configured with `base: '/dev-interview-prep/'`. If you choose a different repository name, update the base to `/<your-repository-name>/`.
+1. Create a new GitHub repository named `dev-interview-hub` under `krishnapawar` and push this project to its `main` branch.
+2. `vite.config.js` is configured with `base: '/dev-interview-hub/'`. If you choose a different repository name, update the base to `/<your-repository-name>/`.
 3. In the new repository, open **Settings → Pages** and set **Build and deployment → Source** to **GitHub Actions**.
 4. Push to `main`. The included `.github/workflows/deploy.yml` builds the site and deploys it.
-5. Open `https://krishnapawar.github.io/dev-interview-prep/` after the workflow succeeds.
+5. Open `https://krishnapawar.github.io/dev-interview-hub/` after the workflow succeeds.
 
 ## GitHub API notes
 The application uses the unauthenticated public GitHub REST API and `raw.githubusercontent.com`. No token or backend is required for a public repository. GitHub applies rate limits to unauthenticated requests; use the **Sync notes** button after waiting if a limit is reached.

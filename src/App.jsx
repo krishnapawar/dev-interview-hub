@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { fetchRepositoryNotes, repositoryUrl } from './github'
 
-const STORAGE_KEY = 'dev-interview-prep-v1'
+const STORAGE_KEY = 'dev-interview-hub-v1'
 const prettyName = path => path.split('/').pop().replace(/\.md$/i, '').replace(/[-_]/g, ' ')
 const categoryFor = path => path.includes('/') ? path.split('/')[0].replace(/[-_]/g, ' ') : 'General'
 const readSaved = () => {
