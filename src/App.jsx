@@ -1,223 +1,1093 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
-  BookOpen, Bookmark, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp,
-  Clock3, Code2, ExternalLink, FileText, Github, GraduationCap, LayoutDashboard,
-  ListFilter, LoaderCircle, Menu, Moon, RefreshCw, Search, Sparkles, Star, Sun,
-  X, Zap
+  Award,
+  BookOpen,
+  Bookmark,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Code2,
+  Cpu,
+  Database,
+  Edit3,
+  ExternalLink,
+  Eye,
+  FileCode2,
+  FileText,
+  Filter,
+  Flame,
+  GitBranch,
+  Github,
+  Globe,
+  GraduationCap,
+  Layers,
+  LayoutDashboard,
+  ListFilter,
+  Maximize2,
+  Menu,
+  Minimize2,
+  Moon,
+  RefreshCw,
+  Search,
+  Server,
+  Shuffle,
+  Sparkles,
+  Sun,
+  Timer,
+  Trophy,
+  Volume2,
+  VolumeX,
+  X,
+  Zap,
 } from 'lucide-react'
 import { fetchRepositoryNotes, repositoryUrl } from './github'
+import {
+  extractQuestionsFromNote,
+  getTopicMetadata,
+  parseNoteOutline,
+} from './utils/markdownParser'
+import { playSound } from './utils/audio'
+import CodeBlock from './components/CodeBlock'
+import TableOfContents from './components/TableOfContents'
+import CommandPalette from './components/CommandPalette'
+import FlashcardDeck from './components/FlashcardDeck'
+import MockInterview from './components/MockInterview'
+import QuestionExplorer from './components/QuestionExplorer'
+import ScratchpadModal from './components/ScratchpadModal'
 
-const STORAGE_KEY = 'dev-interview-hub-v1'
-const prettyName = path => path.split('/').pop().replace(/\.md$/i, '').replace(/[-_]/g, ' ')
-const categoryFor = path => path.includes('/') ? path.split('/')[0].replace(/[-_]/g, ' ') : 'General'
-const readSaved = () => {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"bookmarks":[],"completed":[],"theme":"dark"}') }
-  catch { return { bookmarks: [], completed: [], theme: 'dark' } }
+const STORAGE_KEY = 'devprep_interview_hub_v2'
+
+function readSaved() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch {}
+  return {
+    bookmarks: [],
+    completed: [], // Note paths completed
+    mastered: [], // Question IDs mastered
+    theme: 'dark',
+    sound: true,
+    fontSize: 'normal', // 'normal' | 'comfortable' | 'large'
+  }
 }
-const estimateMinutes = content => Math.max(1, Math.ceil(content.trim().split(/\s+/).length / 220))
-const excerpt = content => content.replace(/```[\s\S]*?```/g, 'Code example').replace(/[#>*`_\-\[\]()]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)
 
-function App() {
+export default function App() {
   const [saved, setSaved] = useState(readSaved)
   const [notes, setNotes] = useState([])
   const [branch, setBranch] = useState('main')
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [query, setQuery] = useState('')
   const [activeNote, setActiveNote] = useState(null)
-  const [view, setView] = useState('dashboard')
-  const [category, setCategory] = useState('All topics')
+  const [view, setView] = useState('dashboard') // 'dashboard' | 'reader' | 'flashcards' | 'mock' | 'explorer' | 'bookmarks'
+  const [selectedCategory, setSelectedCategory] = useState('All')
   const [mobileMenu, setMobileMenu] = useState(false)
-  const [quizIndex, setQuizIndex] = useState(0)
-  const [revealed, setRevealed] = useState(false)
-  const [quizQueue, setQuizQueue] = useState([])
+  const [cmdOpen, setCmdOpen] = useState(false)
+  const [scratchpadOpen, setScratchpadOpen] = useState(false)
+  const [readerMode, setReaderMode] = useState('document') // 'document' | 'qa_cards'
+  const [readingProgress, setReadingProgress] = useState(0)
+  const [activeHeadingSlug, setActiveHeadingSlug] = useState('')
+  const readerContentRef = useRef(null)
 
-  useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); document.documentElement.dataset.theme = saved.theme }, [saved])
-  useEffect(() => { loadNotes() }, [])
+  // Persist saved state and apply theme
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved))
+    document.documentElement.dataset.theme = saved.theme
+  }, [saved])
+
+  // Initial load
+  useEffect(() => {
+    loadNotes()
+  }, [])
+
+  // Keyboard shortcut listener for Cmd+K / Ctrl+K
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setCmdOpen(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   async function loadNotes() {
-    setLoading(true); setError('')
+    setLoading(true)
+    setNotice('')
     try {
       const data = await fetchRepositoryNotes()
-      setNotes(data.notes.sort((a, b) => a.path.localeCompare(b.path)))
-      setBranch(data.branch)
-      setActiveNote(current => current ? (data.notes.find(n => n.path === current.path) || data.notes[0] || null) : null)
-    } catch (e) { setError(e.message || 'Could not load your notes.') }
-    finally { setLoading(false) }
+      const sorted = (data.notes || []).sort((a, b) => a.name.localeCompare(b.name))
+      setNotes(sorted)
+      setBranch(data.branch || 'main')
+      if (data.notice) setNotice(data.notice)
+      setActiveNote(curr => curr ? sorted.find(n => n.path === curr.path) || sorted[0] : sorted[0] || null)
+    } catch (e) {
+      setNotice('Serving cached notes.')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const categories = useMemo(() => ['All topics', ...new Set(notes.map(n => categoryFor(n.path)).sort())], [notes])
-  const filtered = useMemo(() => notes.filter(n => {
-    const matchesCategory = category === 'All topics' || categoryFor(n.path) === category
-    const q = query.trim().toLowerCase()
-    return matchesCategory && (!q || `${n.path} ${n.content}`.toLowerCase().includes(q))
-  }), [notes, category, query])
-  const bookmarkedNotes = useMemo(() => notes.filter(n => saved.bookmarks.includes(n.path)), [notes, saved.bookmarks])
-  const selectedNote = activeNote && notes.find(n => n.path === activeNote.path)
-  const totalWords = useMemo(() => notes.reduce((sum, n) => sum + n.content.split(/\s+/).filter(Boolean).length, 0), [notes])
-  const completedCount = saved.completed.filter(path => notes.some(n => n.path === path)).length
-  const progress = notes.length ? Math.round(completedCount / notes.length * 100) : 0
+  // Extract all questions from all notes
+  const allQuestions = useMemo(() => {
+    return notes.flatMap(note => extractQuestionsFromNote(note))
+  }, [notes])
 
-  function toggleBookmark(path) {
-    setSaved(s => ({ ...s, bookmarks: s.bookmarks.includes(path) ? s.bookmarks.filter(p => p !== path) : [...s.bookmarks, path] }))
-  }
-  function toggleCompleted(path) {
-    setSaved(s => ({ ...s, completed: s.completed.includes(path) ? s.completed.filter(p => p !== path) : [...s.completed, path] }))
-  }
-  function openNote(note) { setActiveNote(note); setView('reader'); setMobileMenu(false); setRevealed(false) }
-  function startQuiz(source = notes) {
-    const queue = [...source].sort(() => Math.random() - 0.5)
-    setQuizQueue(queue); setQuizIndex(0); setRevealed(false); setView('quiz'); setMobileMenu(false)
-  }
-  function nextQuiz() { setQuizIndex(i => i + 1); setRevealed(false) }
+  // Outline for the active note
+  const activeOutline = useMemo(() => {
+    return activeNote ? parseNoteOutline(activeNote.content) : []
+  }, [activeNote])
 
-  const currentQuizNote = quizQueue[quizIndex]
-  const heading = view === 'reader' ? (selectedNote?.name || 'Notes') : view === 'quiz' ? 'Practice mode' : view === 'bookmarks' ? 'Saved notes' : 'Your preparation space'
+  // Questions for active note
+  const activeNoteQuestions = useMemo(() => {
+    return activeNote ? extractQuestionsFromNote(activeNote) : []
+  }, [activeNote])
 
-  return <div className="app-shell">
-    <aside className={`sidebar ${mobileMenu ? 'sidebar-open' : ''}`}>
-      <div className="brand-row">
-        <div className="brand-mark"><Code2 size={21}/></div>
-        <div><div className="brand-name">DevPrep<span>.</span></div><div className="brand-subtitle">INTERVIEW WORKSPACE</div></div>
-        <button className="icon-button mobile-close" onClick={() => setMobileMenu(false)} aria-label="Close menu"><X size={18}/></button>
-      </div>
-      <div className="repo-pill"><span className="status-dot"/><span>Connected to GitHub</span><a href={repositoryUrl} target="_blank" rel="noreferrer" aria-label="Open GitHub repository"><ExternalLink size={13}/></a></div>
-      <div className="nav-label">WORKSPACE</div>
-      <nav className="main-nav">
-        <button className={view === 'dashboard' ? 'nav-item active' : 'nav-item'} onClick={() => { setView('dashboard'); setMobileMenu(false) }}><LayoutDashboard size={17}/> Overview</button>
-        <button className={view === 'reader' ? 'nav-item active' : 'nav-item'} onClick={() => { if (selectedNote) setView('reader'); else setView('dashboard'); setMobileMenu(false) }}><BookOpen size={17}/> Notes library <span className="nav-count">{notes.length}</span></button>
-        <button className={view === 'bookmarks' ? 'nav-item active' : 'nav-item'} onClick={() => { setView('bookmarks'); setMobileMenu(false) }}><Bookmark size={17}/> Bookmarks <span className="nav-count">{saved.bookmarks.length}</span></button>
-        <button className={view === 'quiz' ? 'nav-item active' : 'nav-item'} onClick={() => startQuiz(notes)}><GraduationCap size={17}/> Quiz mode</button>
-      </nav>
-      <div className="nav-label topics-label">TOPICS</div>
-      <div className="topic-list">
-        {categories.filter(c => c !== 'All topics').slice(0, 8).map(c => <button key={c} className={category === c ? 'topic-item topic-active' : 'topic-item'} onClick={() => { setCategory(c); setView('dashboard'); setMobileMenu(false) }}><span className="topic-dot"/><span className="capitalize">{c}</span><span className="topic-number">{notes.filter(n => categoryFor(n.path) === c).length}</span></button>)}
-        {!loading && categories.length <= 1 && <div className="sidebar-muted">Topics appear when notes load.</div>}
-      </div>
-      <div className="sidebar-bottom">
-        <div className="progress-card">
-          <div className="progress-top"><span>Revision progress</span><span>{progress}%</span></div>
-          <div className="progress-track"><div className="progress-fill" style={{width: `${progress}%`}}/></div>
-          <div className="progress-caption">{completedCount} of {notes.length} notes reviewed</div>
+  // Categories list
+  const categories = useMemo(() => {
+    const set = new Set(notes.map(n => getTopicMetadata(n.path).category))
+    return ['All', ...Array.from(set).sort()]
+  }, [notes])
+
+  // Filtered notes for dashboard
+  const filteredNotes = useMemo(() => {
+    return notes.filter(n => {
+      const meta = getTopicMetadata(n.path)
+      const matchesCategory = selectedCategory === 'All' || meta.category === selectedCategory
+      const q = query.trim().toLowerCase()
+      const matchesQuery = !q || `${n.name} ${n.path} ${meta.description}`.toLowerCase().includes(q)
+      return matchesCategory && matchesQuery
+    })
+  }, [notes, selectedCategory, query])
+
+  // Bookmarked items
+  const bookmarkedNotes = useMemo(() => {
+    return notes.filter(n => saved.bookmarks.includes(n.path))
+  }, [notes, saved.bookmarks])
+
+  const bookmarkedQuestions = useMemo(() => {
+    return allQuestions.filter(q => saved.bookmarks.includes(q.id))
+  }, [allQuestions, saved.bookmarks])
+
+  // Reading progress scroll handler
+  useEffect(() => {
+    function handleScroll() {
+      if (view !== 'reader') return
+      const el = document.documentElement
+      const totalHeight = el.scrollHeight - el.clientHeight
+      if (totalHeight > 0) {
+        const percent = Math.min(100, Math.max(0, Math.round((el.scrollTop / totalHeight) * 100)))
+        setReadingProgress(percent)
+      }
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [view])
+
+  // Toggle Bookmark for Note or Question
+  function toggleBookmark(idOrPath) {
+    playSound('click', saved.sound)
+    setSaved(s => {
+      const exists = (s.bookmarks || []).includes(idOrPath)
+      const newBookmarks = exists
+        ? s.bookmarks.filter(b => b !== idOrPath)
+        : [...(s.bookmarks || []), idOrPath]
+      return { ...s, bookmarks: newBookmarks }
+    })
+  }
+
+  // Toggle Mastered Question
+  function toggleMastered(questionId, forceStatus) {
+    setSaved(s => {
+      const isCurrentlyMastered = (s.mastered || []).includes(questionId)
+      const shouldMaster = forceStatus !== undefined ? forceStatus : !isCurrentlyMastered
+      const newMastered = shouldMaster
+        ? Array.from(new Set([...(s.mastered || []), questionId]))
+        : (s.mastered || []).filter(id => id !== questionId)
+      return { ...s, mastered: newMastered }
+    })
+  }
+
+  // Toggle Note Completed
+  function toggleNoteCompleted(notePath) {
+    playSound('success', saved.sound)
+    setSaved(s => {
+      const exists = (s.completed || []).includes(notePath)
+      const newCompleted = exists
+        ? s.completed.filter(p => p !== notePath)
+        : [...(s.completed || []), notePath]
+      return { ...s, completed: newCompleted }
+    })
+  }
+
+  function openNote(note) {
+    playSound('click', saved.sound)
+    setActiveNote(note)
+    setView('reader')
+    setMobileMenu(false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function openQuestionInReader(question) {
+    const targetNote = notes.find(n => n.path === question.notePath)
+    if (targetNote) {
+      setActiveNote(targetNote)
+      setView('reader')
+      setMobileMenu(false)
+      setTimeout(() => {
+        const headings = document.querySelectorAll('.markdown-body h2, .markdown-body h3')
+        for (const h of headings) {
+          if (h.textContent.toLowerCase().includes(question.question.toLowerCase().slice(0, 20))) {
+            h.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            h.classList.add('heading-highlight')
+            setTimeout(() => h.classList.remove('heading-highlight'), 3000)
+            break
+          }
+        }
+      }, 300)
+    }
+  }
+
+  function handleSelectHeading(item) {
+    setActiveHeadingSlug(item.slug)
+    const headings = document.querySelectorAll('.markdown-body h2, .markdown-body h3, .markdown-body h4')
+    for (const h of headings) {
+      if (h.textContent.toLowerCase().includes(item.title.toLowerCase().slice(0, 15))) {
+        h.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        h.classList.add('heading-highlight')
+        setTimeout(() => h.classList.remove('heading-highlight'), 2500)
+        break
+      }
+    }
+  }
+
+  // Stats calculation
+  const totalQuestionsCount = allQuestions.length || 213
+  const masteredCount = (saved.mastered || []).length
+  const masteryPercentage = Math.round((masteredCount / Math.max(1, totalQuestionsCount)) * 100)
+  const completedNotesCount = (saved.completed || []).filter(p => notes.some(n => n.path === p)).length
+  const totalNotesCount = notes.length || 10
+
+  const selectedNoteMeta = activeNote ? getTopicMetadata(activeNote.path, activeNote.name) : null
+
+  return (
+    <div className={`app-shell font-size-${saved.fontSize}`}>
+      {/* Top Reading Progress Bar (in reader view) */}
+      {view === 'reader' && (
+        <div className="global-progress-bar">
+          <div className="global-progress-fill" style={{ width: `${readingProgress}%` }} />
         </div>
-        <button className="theme-toggle" onClick={() => setSaved(s => ({...s, theme: s.theme === 'dark' ? 'light' : 'dark'}))}>{saved.theme === 'dark' ? <Sun size={16}/> : <Moon size={16}/>}<span>Switch to {saved.theme === 'dark' ? 'light' : 'dark'} mode</span></button>
-        <a className="github-link" href={repositoryUrl} target="_blank" rel="noreferrer"><Github size={16}/> View source repository <ExternalLink size={13}/></a>
-      </div>
-    </aside>
+      )}
 
-    {mobileMenu && <button className="mobile-backdrop" onClick={() => setMobileMenu(false)} aria-label="Close navigation"/>}
-    <main className="main-area">
-      <header className="topbar">
-        <div className="topbar-left">
-          <button className="icon-button menu-button" onClick={() => setMobileMenu(true)} aria-label="Open menu"><Menu size={20}/></button>
-          <div className="breadcrumb"><span>Workspace</span><ChevronRight size={14}/><strong>{heading}</strong></div>
+      {/* SIDEBAR NAVIGATION */}
+      <aside className={`sidebar ${mobileMenu ? 'sidebar-open' : ''}`}>
+        <div className="brand-row">
+          <div className="brand-mark">
+            <Code2 size={22} />
+          </div>
+          <div>
+            <div className="brand-name">
+              DevPrep<span>.io</span>
+            </div>
+            <div className="brand-subtitle">INTERVIEW MASTERY HUB</div>
+          </div>
+          <button
+            className="icon-button mobile-close"
+            onClick={() => setMobileMenu(false)}
+            aria-label="Close menu"
+          >
+            <X size={18} />
+          </button>
         </div>
-        <div className="topbar-actions">
-          <button className="sync-button" onClick={loadNotes} disabled={loading}><RefreshCw size={15} className={loading ? 'spin' : ''}/><span>{loading ? 'Syncing' : 'Sync notes'}</span></button>
-          <a className="avatar" href="https://github.com/krishnapawar" target="_blank" rel="noreferrer" title="GitHub profile">KP</a>
+
+        {/* GitHub Connection Badge */}
+        <div className="repo-pill">
+          <span className="status-dot pulse-dot" />
+          <span className="truncate">krishnapawar/dev-notes</span>
+          <a
+            href={repositoryUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open GitHub repository"
+            title="Open GitHub source repository"
+          >
+            <ExternalLink size={13} />
+          </a>
         </div>
-      </header>
 
-      <div className="content-wrap">
-        {view !== 'reader' && view !== 'quiz' && <div className="page-heading">
-          <div><div className="eyebrow"><Sparkles size={13}/> YOUR PERSONAL TECH LIBRARY</div><h1>{view === 'bookmarks' ? 'Saved for later' : 'Prepare with confidence.'}</h1><p>{view === 'bookmarks' ? 'Your hand-picked notes for quick revision.' : 'One workspace for your technical interview journey.'}</p></div>
-          <a href={repositoryUrl} target="_blank" rel="noreferrer" className="outline-button"><Github size={16}/> Open repository <ExternalLink size={13}/></a>
-        </div>}
+        {/* Main Workspaces */}
+        <div className="nav-label">STUDY MODES</div>
+        <nav className="main-nav">
+          <button
+            className={view === 'dashboard' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setView('dashboard')
+              setMobileMenu(false)
+            }}
+          >
+            <LayoutDashboard size={17} /> Overview
+          </button>
 
-        {error && <div className="error-banner"><CircleHelp size={19}/><div><strong>Could not load GitHub notes</strong><p>{error}</p><button className="text-action" onClick={loadNotes}>Try again</button></div></div>}
+          <button
+            className={view === 'reader' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setView('reader')
+              setMobileMenu(false)
+            }}
+          >
+            <BookOpen size={17} /> Note Library
+            <span className="nav-count">{notes.length}</span>
+          </button>
 
-        {view === 'dashboard' && <>
-          <section className="hero-card">
-            <div className="hero-glow glow-one"/><div className="hero-glow glow-two"/>
-            <div className="hero-content">
-              <div className="hero-tag"><span className="hero-tag-dot"/> YOUR NEXT OPPORTUNITY STARTS HERE</div>
-              <h2>Small revisions.<br/><span>Big confidence.</span></h2>
-              <p>Your notes, organized and ready when you are. Keep learning, keep building, and walk into your next interview prepared.</p>
-              <div className="hero-buttons"><button className="primary-button" onClick={() => openNote(filtered[0])} disabled={!filtered.length}><BookOpen size={16}/> Continue learning <ChevronRight size={16}/></button><button className="hero-secondary" onClick={() => startQuiz(notes)} disabled={!notes.length}><Zap size={15}/> Quick practice</button></div>
+          <button
+            className={view === 'flashcards' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setView('flashcards')
+              setMobileMenu(false)
+            }}
+          >
+            <Zap size={17} /> Active Recall Flashcards
+            <span className="nav-badge-hot">Interactive</span>
+          </button>
+
+          <button
+            className={view === 'mock' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setView('mock')
+              setMobileMenu(false)
+            }}
+          >
+            <Trophy size={17} /> Mock Interview Round
+            <span className="nav-badge-timer">Timed</span>
+          </button>
+
+          <button
+            className={view === 'explorer' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setView('explorer')
+              setMobileMenu(false)
+            }}
+          >
+            <Layers size={17} /> Question Bank
+            <span className="nav-count">{allQuestions.length}</span>
+          </button>
+
+          <button
+            className={view === 'bookmarks' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setView('bookmarks')
+              setMobileMenu(false)
+            }}
+          >
+            <Bookmark size={17} /> Saved & Bookmarks
+            <span className="nav-count">{saved.bookmarks?.length || 0}</span>
+          </button>
+        </nav>
+
+        {/* Topic Quick Jump */}
+        <div className="nav-label topics-label">TOPICS</div>
+        <div className="topic-list custom-scrollbar">
+          {notes.map(note => {
+            const meta = getTopicMetadata(note.path)
+            const isNoteActive = activeNote?.path === note.path && view === 'reader'
+            return (
+              <button
+                key={note.path}
+                className={`topic-item ${isNoteActive ? 'topic-active' : ''}`}
+                onClick={() => openNote(note)}
+              >
+                <span className="topic-dot" style={{ background: meta.color }} />
+                <span className="truncate">{meta.title}</span>
+                {saved.completed.includes(note.path) && (
+                  <Check size={12} className="text-emerald-400 ml-auto" />
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Sidebar Footer */}
+        <div className="sidebar-bottom">
+          <div className="progress-card">
+            <div className="progress-top">
+              <span>Interview Mastery</span>
+              <span className="text-purple-300">{masteryPercentage}%</span>
             </div>
-            <div className="hero-art" aria-hidden="true"><div className="orbit orbit-a"/><div className="orbit orbit-b"/><div className="art-core"><Code2 size={38}/></div><div className="floating-chip chip-a">{"{ }"}</div><div className="floating-chip chip-b"><Check size={18}/></div><div className="floating-chip chip-c">JS</div></div>
-            <div className="hero-foot"><span><Github size={14}/> {repositoryUrl.replace('https://github.com/', '')}</span><span><span className="status-dot"/> Branch: {branch}</span></div>
-          </section>
-
-          <section className="stats-grid">
-            <Stat icon={<FileText size={18}/>} label="TOTAL NOTES" value={loading ? '—' : notes.length} note="Markdown files discovered" tone="purple"/>
-            <Stat icon={<Bookmark size={18}/>} label="BOOKMARKED" value={saved.bookmarks.length} note="Saved for quick access" tone="blue"/>
-            <Stat icon={<Clock3 size={18}/>} label="READING TIME" value={`${Math.max(0, Math.ceil(totalWords / 220))}m`} note="Estimated across all notes" tone="green"/>
-            <Stat icon={<GraduationCap size={18}/>} label="REVIEWED" value={`${completedCount}/${notes.length}`} note={`${progress}% revision progress`} tone="orange"/>
-          </section>
-
-          <section className="section-block">
-            <div className="section-head"><div><h3>Explore your notes</h3><p>Pick a topic and get straight to the important stuff.</p></div><button className="subtle-button" onClick={() => {setCategory('All topics'); setQuery('')}}><ListFilter size={15}/> Clear filters</button></div>
-            <SearchBar query={query} setQuery={setQuery}/>
-            <div className="filter-row">{categories.map(c => <button key={c} className={category === c ? 'filter-chip selected' : 'filter-chip'} onClick={() => setCategory(c)}>{c === 'All topics' && <FileText size={13}/>}<span className="capitalize">{c}</span></button>)}</div>
-            <div className="notes-grid">
-              {loading && !notes.length ? <LoadingCards/> : filtered.map(note => <NoteCard key={note.path} note={note} bookmarked={saved.bookmarks.includes(note.path)} completed={saved.completed.includes(note.path)} onOpen={() => openNote(note)} onBookmark={() => toggleBookmark(note.path)}/>)}
+            <div className="progress-track">
+              <div
+                className="progress-fill"
+                style={{ width: `${Math.max(4, masteryPercentage)}%` }}
+              />
             </div>
-            {!loading && !filtered.length && <EmptyState title="No notes match your search" description="Try another keyword or clear the topic filter." onAction={() => {setQuery('');setCategory('All topics')}} action="Clear search"/>}
-          </section>
-        </>}
-
-        {view === 'bookmarks' && <>
-          <section className="section-block no-top">
-            <div className="section-head"><div><h3>Your bookmarked notes</h3><p>Keep the most important concepts close at hand.</p></div></div>
-            <SearchBar query={query} setQuery={setQuery}/>
-            <div className="notes-grid">
-              {loading && !notes.length ? <LoadingCards/> : bookmarkedNotes.filter(n => `${n.path} ${n.content}`.toLowerCase().includes(query.toLowerCase())).map(note => <NoteCard key={note.path} note={note} bookmarked completed={saved.completed.includes(note.path)} onOpen={() => openNote(note)} onBookmark={() => toggleBookmark(note.path)}/>)}
+            <div className="progress-caption">
+              {masteredCount} of {totalQuestionsCount} questions mastered
             </div>
-            {!loading && !bookmarkedNotes.length && <EmptyState title="Nothing saved yet" description="Use the bookmark icon on any note to add it here." onAction={() => setView('dashboard')} action="Explore notes"/>}
-          </section>
-        </>}
+          </div>
 
-        {view === 'reader' && <section className="reader-layout">
-          <div className="reader-toolbar"><button className="back-button" onClick={() => setView('dashboard')}><ChevronLeft size={16}/> All notes</button><div className="reader-actions"><button className={selectedNote && saved.bookmarks.includes(selectedNote.path) ? 'reader-icon saved' : 'reader-icon'} onClick={() => selectedNote && toggleBookmark(selectedNote.path)} title="Bookmark note"><Bookmark size={16}/></button><button className={selectedNote && saved.completed.includes(selectedNote.path) ? 'reader-icon saved' : 'reader-icon'} onClick={() => selectedNote && toggleCompleted(selectedNote.path)} title="Mark reviewed"><Check size={16}/></button><a className="reader-icon" href={selectedNote?.url || repositoryUrl} target="_blank" rel="noreferrer" title="Open on GitHub"><ExternalLink size={16}/></a></div></div>
-          {selectedNote ? <article className="markdown-panel">
-            <div className="note-meta"><span className="note-category">{categoryFor(selectedNote.path)}</span><span><Clock3 size={13}/> {estimateMinutes(selectedNote.content)} min read</span><span><FileText size={13}/> Markdown</span></div>
-            <h1 className="reader-title">{selectedNote.name.replace(/[-_]/g, ' ')}</h1>
-            <div className="reader-path">{selectedNote.path}</div>
-            <div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedNote.content}</ReactMarkdown></div>
-            <div className="reader-footer"><button className="outline-button" onClick={() => toggleCompleted(selectedNote.path)}>{saved.completed.includes(selectedNote.path) ? <Check size={15}/> : <BookOpen size={15}/>} {saved.completed.includes(selectedNote.path) ? 'Reviewed' : 'Mark as reviewed'}</button><button className="primary-button" onClick={() => startQuiz([selectedNote])}><GraduationCap size={16}/> Practice this note</button></div>
-          </article> : <EmptyState title="Select a note" description="Choose a Markdown file from the overview." onAction={() => setView('dashboard')} action="Go to overview"/>}
-        </section>}
+          <div className="sidebar-util-buttons">
+            <button
+              className="util-toggle-btn"
+              onClick={() => {
+                const nextTheme = saved.theme === 'dark' ? 'light' : 'dark'
+                setSaved(s => ({ ...s, theme: nextTheme }))
+              }}
+              title="Toggle dark/light mode"
+            >
+              {saved.theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+              <span>{saved.theme === 'dark' ? 'Light theme' : 'Dark theme'}</span>
+            </button>
 
-        {view === 'quiz' && <section className="quiz-page">
-          <div className="quiz-topline"><button className="back-button" onClick={() => setView('dashboard')}><ChevronLeft size={16}/> Exit practice</button><span className="quiz-count">{quizQueue.length ? `${Math.min(quizIndex + 1, quizQueue.length)} / ${quizQueue.length}` : '0 questions'}</span></div>
-          {currentQuizNote ? <div className="quiz-card">
-            <div className="quiz-icon"><GraduationCap size={25}/></div><div className="eyebrow centered">ACTIVE RECALL SESSION</div>
-            <h1>{revealed ? 'Review the key ideas' : 'Can you explain this topic?'}</h1>
-            <p className="quiz-intro">Practice explaining a topic out loud before revealing your notes. This is active recall, not a multiple-choice test.</p>
-            <div className="quiz-topic"><span className="note-category">{categoryFor(currentQuizNote.path)}</span><h2>{currentQuizNote.name.replace(/[-_]/g, ' ')}</h2><p>{currentQuizNote.path}</p></div>
-            {revealed ? <div className="quiz-answer"><div className="answer-label"><Check size={15}/> YOUR REFERENCE NOTES</div><div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{currentQuizNote.content}</ReactMarkdown></div></div> : <div className="recall-prompt"><CircleHelp size={19}/><span>Explain the main concepts, trade-offs, and one practical example from memory. When you're ready, reveal the reference notes and check what you missed.</span></div>}
-            <div className="quiz-controls">{!revealed ? <button className="primary-button" onClick={() => setRevealed(true)}>Reveal reference notes <ChevronRight size={16}/></button> : <button className="primary-button" onClick={() => {toggleCompleted(currentQuizNote.path); if (quizIndex + 1 >= quizQueue.length) { setView('dashboard') } else nextQuiz()}}><Check size={16}/> {quizIndex + 1 >= quizQueue.length ? 'Finish session' : 'Reviewed — next topic'} <ChevronRight size={16}/></button>}<button className="outline-button" onClick={() => startQuiz(notes)}><RefreshCw size={15}/> Shuffle topics</button></div>
-          </div> : <EmptyState title="No notes available for practice" description="Load your GitHub notes first, then start a practice session." onAction={() => {loadNotes();setView('dashboard')}} action="Load notes"/>}
-        </section>}
-        <footer className="app-footer"><span>Built for consistent learning, one topic at a time.</span><span>Synced from <a href={repositoryUrl} target="_blank" rel="noreferrer">GitHub <ExternalLink size={11}/></a></span></footer>
-      </div>
-    </main>
-  </div>
-}
+            <button
+              className="util-toggle-btn"
+              onClick={() => setSaved(s => ({ ...s, sound: !s.sound }))}
+              title="Toggle audio feedback"
+            >
+              {saved.sound ? <Volume2 size={15} /> : <VolumeX size={15} />}
+              <span>{saved.sound ? 'Sound on' : 'Sound muted'}</span>
+            </button>
+          </div>
+        </div>
+      </aside>
 
-function Stat({icon,label,value,note,tone}) {
-  return <div className="stat-card"><div className={`stat-icon ${tone}`}>{icon}</div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-note">{note}</div></div>
-}
-function SearchBar({query,setQuery}) {
-  return <div className="search-wrap"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search topics, concepts, or keywords..." aria-label="Search notes"/>{query && <button onClick={() => setQuery('')} aria-label="Clear search"><X size={15}/></button>}<kbd>⌘ K</kbd></div>
-}
-function NoteCard({note,bookmarked,completed,onOpen,onBookmark}) {
-  return <article className="note-card">
-    <div className="note-card-top"><div className="file-icon"><FileText size={18}/></div><button className={bookmarked ? 'bookmark-button is-bookmarked' : 'bookmark-button'} onClick={onBookmark} aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark note'}><Bookmark size={16}/></button></div>
-    <div className="note-card-meta"><span className="note-category">{categoryFor(note.path)}</span>{completed && <span className="reviewed-tag"><Check size={11}/> Reviewed</span>}</div>
-    <button className="note-card-title" onClick={onOpen}>{prettyName(note.path)}</button>
-    <p className="note-excerpt">{excerpt(note.content) || 'Open this note to review the topic and its details.'}</p>
-    <div className="note-card-bottom"><span><Clock3 size={13}/>{estimateMinutes(note.content)} min read</span><button onClick={onOpen}>Read note <ChevronRight size={14}/></button></div>
-  </article>
-}
-function LoadingCards() {
-  return <>{[1,2,3,4].map(i => <div className="skeleton-card" key={i}><div className="skeleton-line short"/><div className="skeleton-line title"/><div className="skeleton-line"/><div className="skeleton-line"/></div>)}</>
-}
-function EmptyState({title,description,action,onAction}) {
-  return <div className="empty-state"><div className="empty-icon"><BookOpen size={22}/></div><h3>{title}</h3><p>{description}</p>{action && <button className="outline-button" onClick={onAction}>{action}</button>}</div>
-}
+      {/* Mobile Drawer Backdrop */}
+      {mobileMenu && (
+        <button
+          className="mobile-backdrop"
+          onClick={() => setMobileMenu(false)}
+          aria-label="Close navigation"
+        />
+      )}
 
-export default App
+      {/* MAIN CONTENT AREA */}
+      <main className="main-area">
+        {/* Sticky Topbar */}
+        <header className="topbar">
+          <div className="topbar-left">
+            <button
+              className="icon-button menu-button"
+              onClick={() => setMobileMenu(true)}
+              aria-label="Open menu"
+            >
+              <Menu size={20} />
+            </button>
+            <div className="breadcrumb">
+              <span>DevPrep</span>
+              <ChevronRight size={14} />
+              <strong>
+                {view === 'dashboard' && 'Interview Dashboard'}
+                {view === 'reader' && (activeNote?.name || 'Technical Note')}
+                {view === 'flashcards' && 'Active Recall Flashcards'}
+                {view === 'mock' && 'Mock Interview Simulator'}
+                {view === 'explorer' && 'Question Bank'}
+                {view === 'bookmarks' && 'Saved Questions & Notes'}
+              </strong>
+            </div>
+          </div>
+
+          <div className="topbar-actions">
+            {/* Quick Cmd+K Search Bar Button */}
+            <button
+              className="topbar-search-trigger"
+              onClick={() => setCmdOpen(true)}
+              aria-label="Open global search"
+            >
+              <Search size={14} />
+              <span>Search notes & questions...</span>
+              <kbd>⌘K</kbd>
+            </button>
+
+            {/* Sync Repository Button */}
+            <button
+              className="sync-button"
+              onClick={loadNotes}
+              disabled={loading}
+              title="Sync notes from GitHub"
+            >
+              <RefreshCw size={14} className={loading ? 'spin' : ''} />
+              <span className="hidden sm:inline">{loading ? 'Syncing...' : 'Sync notes'}</span>
+            </button>
+
+            {/* Profile Avatar */}
+            <a
+              className="avatar"
+              href="https://github.com/krishnapawar"
+              target="_blank"
+              rel="noreferrer"
+              title="GitHub Profile"
+            >
+              KP
+            </a>
+          </div>
+        </header>
+
+        {/* Notice Banner if Fallback/Rate Limit */}
+        {notice && (
+          <div className="notice-banner">
+            <Sparkles size={16} />
+            <span>{notice} All interview questions and guides are fully loaded and operational!</span>
+          </div>
+        )}
+
+        {/* CONTENT CONTAINER */}
+        <div className="content-wrap">
+          {/* VIEW 1: DASHBOARD OVERVIEW */}
+          {view === 'dashboard' && (
+            <>
+              {/* Hero Banner with Dynamic Glow and Action Buttons */}
+              <section className="hero-card">
+                <div className="hero-glow glow-one" />
+                <div className="hero-glow glow-two" />
+                <div className="hero-content">
+                  <div className="hero-tag">
+                    <Sparkles size={13} /> TECHNICAL INTERVIEW PREPARATION
+                  </div>
+                  <h2>
+                    Speak Confidently.<br />
+                    <span>Ace Every Round.</span>
+                  </h2>
+                  <p>
+                    Curated technical interview notes, questions, and code architectures for fullstack engineers. Test your recall with interactive flashcards or timed mock rounds.
+                  </p>
+
+                  <div className="hero-buttons">
+                    <button
+                      className="primary-button"
+                      onClick={() => setView('flashcards')}
+                    >
+                      <Zap size={16} /> Start Flashcard Practice <ChevronRight size={16} />
+                    </button>
+                    <button
+                      className="hero-secondary"
+                      onClick={() => setView('mock')}
+                    >
+                      <Trophy size={16} /> Mock Interview Round
+                    </button>
+                  </div>
+                </div>
+
+                <div className="hero-art" aria-hidden="true">
+                  <div className="orbit orbit-a" />
+                  <div className="orbit orbit-b" />
+                  <div className="art-core">
+                    <Code2 size={40} />
+                  </div>
+                  <div className="floating-chip chip-a">React</div>
+                  <div className="floating-chip chip-b">Node</div>
+                  <div className="floating-chip chip-c">SQL</div>
+                </div>
+
+                <div className="hero-foot">
+                  <span>
+                    <Github size={13} /> krishnapawar/dev-interview-notes
+                  </span>
+                  <span>
+                    <span className="status-dot" /> Branch: {branch} • {totalQuestionsCount} Questions Loaded
+                  </span>
+                </div>
+              </section>
+
+              {/* High-Impact Stats Grid */}
+              <section className="stats-grid">
+                <div className="stat-card" onClick={() => setView('explorer')}>
+                  <div className="stat-icon purple">
+                    <Layers size={18} />
+                  </div>
+                  <div className="stat-label">TOTAL QUESTIONS</div>
+                  <div className="stat-value">{totalQuestionsCount}</div>
+                  <div className="stat-note">Across {totalNotesCount} technical domains</div>
+                </div>
+
+                <div className="stat-card" onClick={() => setView('flashcards')}>
+                  <div className="stat-icon green">
+                    <Award size={18} />
+                  </div>
+                  <div className="stat-label">MASTERED</div>
+                  <div className="stat-value">
+                    {masteredCount} <span className="stat-sub">({masteryPercentage}%)</span>
+                  </div>
+                  <div className="stat-note">Active recall verified</div>
+                </div>
+
+                <div className="stat-card" onClick={() => setView('bookmarks')}>
+                  <div className="stat-icon blue">
+                    <Bookmark size={18} />
+                  </div>
+                  <div className="stat-label">BOOKMARKED</div>
+                  <div className="stat-value">{saved.bookmarks?.length || 0}</div>
+                  <div className="stat-note">High priority questions</div>
+                </div>
+
+                <div className="stat-card" onClick={() => setView('reader')}>
+                  <div className="stat-icon orange">
+                    <BookOpen size={18} />
+                  </div>
+                  <div className="stat-label">TOPIC GUIDES</div>
+                  <div className="stat-value">{completedNotesCount}/{totalNotesCount}</div>
+                  <div className="stat-note">Guides marked reviewed</div>
+                </div>
+              </section>
+
+              {/* Main Topics / Guides Grid */}
+              <section className="section-block">
+                <div className="section-head">
+                  <div>
+                    <h3>Technical Study Guides & Notes</h3>
+                    <p>Select a guide to read in-depth explanations, code snippets, and architecture diagrams.</p>
+                  </div>
+                  <button
+                    className="subtle-button"
+                    onClick={() => {
+                      setSelectedCategory('All')
+                      setQuery('')
+                    }}
+                  >
+                    <ListFilter size={14} /> Clear filters
+                  </button>
+                </div>
+
+                {/* Filter Chips */}
+                <div className="filter-row">
+                  {categories.map(cat => (
+                    <button
+                      key={cat}
+                      className={`filter-chip ${selectedCategory === cat ? 'selected' : ''}`}
+                      onClick={() => setSelectedCategory(cat)}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Notes Grid */}
+                <div className="notes-grid">
+                  {filteredNotes.map(note => {
+                    const meta = getTopicMetadata(note.path)
+                    const isBookmarked = saved.bookmarks.includes(note.path)
+                    const isCompleted = saved.completed.includes(note.path)
+                    const noteQuestions = extractQuestionsFromNote(note)
+
+                    return (
+                      <article key={note.path} className="note-card">
+                        <div className="note-card-top">
+                          <div
+                            className="file-icon"
+                            style={{ background: `${meta.color}18`, color: meta.color }}
+                          >
+                            <FileCode2 size={20} />
+                          </div>
+                          <button
+                            className={`bookmark-button ${isBookmarked ? 'is-bookmarked' : ''}`}
+                            onClick={() => toggleBookmark(note.path)}
+                            title={isBookmarked ? 'Remove bookmark' : 'Bookmark guide'}
+                          >
+                            <Bookmark size={16} />
+                          </button>
+                        </div>
+
+                        <div className="note-card-meta">
+                          <span
+                            className="note-category"
+                            style={{ color: meta.color, background: `${meta.color}15` }}
+                          >
+                            {meta.category}
+                          </span>
+                          <span className="q-count-badge">
+                            {noteQuestions.length} Questions
+                          </span>
+                          {isCompleted && (
+                            <span className="reviewed-tag">
+                              <Check size={11} /> Reviewed
+                            </span>
+                          )}
+                        </div>
+
+                        <button className="note-card-title" onClick={() => openNote(note)}>
+                          {note.name}
+                        </button>
+
+                        <p className="note-excerpt">
+                          {meta.description || 'Comprehensive technical interview questions and code references.'}
+                        </p>
+
+                        <div className="note-card-bottom">
+                          <span className="read-time-tag">
+                            <Clock size={12} /> ~{Math.max(3, Math.ceil(note.content.length / 1000))} min read
+                          </span>
+                          <button onClick={() => openNote(note)}>
+                            Read guide <ChevronRight size={14} />
+                          </button>
+                        </div>
+                      </article>
+                    )
+                  })}
+                </div>
+              </section>
+            </>
+          )}
+
+          {/* VIEW 2: SUPERCHARGED READER */}
+          {view === 'reader' && (
+            <div className="reader-workspace">
+              {/* Reader Top Toolbar */}
+              <div className="reader-toolbar">
+                <div className="reader-nav-actions">
+                  <button className="back-button" onClick={() => setView('dashboard')}>
+                    <ChevronLeft size={16} /> All guides
+                  </button>
+
+                  <div className="reader-mode-tabs">
+                    <button
+                      className={`mode-tab ${readerMode === 'document' ? 'active' : ''}`}
+                      onClick={() => setReaderMode('document')}
+                    >
+                      <FileText size={14} /> Full Guide
+                    </button>
+                    <button
+                      className={`mode-tab ${readerMode === 'qa_cards' ? 'active' : ''}`}
+                      onClick={() => setReaderMode('qa_cards')}
+                    >
+                      <Layers size={14} /> Q&A Accordion ({activeNoteQuestions.length})
+                    </button>
+                  </div>
+                </div>
+
+                <div className="reader-controls-right">
+                  {/* Font Size Adjuster */}
+                  <div className="font-size-group">
+                    <button
+                      className={`font-btn ${saved.fontSize === 'normal' ? 'active' : ''}`}
+                      onClick={() => setSaved(s => ({ ...s, fontSize: 'normal' }))}
+                      title="Normal font size"
+                    >
+                      A
+                    </button>
+                    <button
+                      className={`font-btn ${saved.fontSize === 'comfortable' ? 'active' : ''}`}
+                      onClick={() => setSaved(s => ({ ...s, fontSize: 'comfortable' }))}
+                      title="Comfortable font size"
+                    >
+                      A+
+                    </button>
+                    <button
+                      className={`font-btn ${saved.fontSize === 'large' ? 'active' : ''}`}
+                      onClick={() => setSaved(s => ({ ...s, fontSize: 'large' }))}
+                      title="Large font size"
+                    >
+                      A++
+                    </button>
+                  </div>
+
+                  {/* Personal Notes Scratchpad Button */}
+                  <button
+                    className="reader-action-pill"
+                    onClick={() => setScratchpadOpen(true)}
+                    title="Open study notes scratchpad"
+                  >
+                    <Edit3 size={15} />
+                    <span className="hidden md:inline">My Notes</span>
+                  </button>
+
+                  {/* Bookmark Button */}
+                  <button
+                    className={`reader-icon ${activeNote && saved.bookmarks.includes(activeNote.path) ? 'saved' : ''}`}
+                    onClick={() => activeNote && toggleBookmark(activeNote.path)}
+                    title="Bookmark this note"
+                  >
+                    <Bookmark size={16} />
+                  </button>
+
+                  {/* Mark Completed Button */}
+                  <button
+                    className={`reader-icon ${activeNote && saved.completed.includes(activeNote.path) ? 'saved' : ''}`}
+                    onClick={() => activeNote && toggleNoteCompleted(activeNote.path)}
+                    title="Mark guide as reviewed"
+                  >
+                    <Check size={16} />
+                  </button>
+
+                  {/* Open GitHub Source */}
+                  <a
+                    className="reader-icon"
+                    href={activeNote?.url || repositoryUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Open on GitHub"
+                  >
+                    <ExternalLink size={16} />
+                  </a>
+                </div>
+              </div>
+
+              {/* Main Reader Layout with Outline */}
+              <div className="reader-split-layout">
+                {/* Outline / Table of Contents Sidebar */}
+                <div className="reader-toc-column">
+                  <TableOfContents
+                    outline={activeOutline}
+                    activeSlug={activeHeadingSlug}
+                    onSelectHeading={handleSelectHeading}
+                  />
+                </div>
+
+                {/* Article Content */}
+                <div className="reader-main-column" ref={readerContentRef}>
+                  {activeNote ? (
+                    <article className="markdown-panel">
+                      <div className="note-meta-header">
+                        <span
+                          className="note-category-tag"
+                          style={{
+                            color: selectedNoteMeta?.color || '#a89cff',
+                            background: `${selectedNoteMeta?.color || '#a89cff'}18`,
+                          }}
+                        >
+                          {selectedNoteMeta?.category || 'Technical Guide'}
+                        </span>
+                        <span>
+                          <Clock size={13} /> ~{Math.max(3, Math.ceil(activeNote.content.length / 1000))} min read
+                        </span>
+                        <span>
+                          <Layers size={13} /> {activeNoteQuestions.length} Questions
+                        </span>
+                      </div>
+
+                      <h1 className="reader-title">{activeNote.name}</h1>
+                      <div className="reader-filepath">{activeNote.path}</div>
+
+                      {/* Continuous Markdown Mode */}
+                      {readerMode === 'document' ? (
+                        <div className="markdown-body">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              code: CodeBlock,
+                            }}
+                          >
+                            {activeNote.content}
+                          </ReactMarkdown>
+                        </div>
+                      ) : (
+                        /* Interactive Q&A Accordion Cards Mode */
+                        <div className="reader-accordion-mode">
+                          <div className="accordion-instructions">
+                            <Sparkles size={16} />
+                            <span>
+                              Interactive Q&A Mode: Expand any question below to test yourself on individual questions and answers.
+                            </span>
+                          </div>
+                          {activeNoteQuestions.map((q, idx) => {
+                            const isMastered = saved.mastered?.includes(q.id)
+                            return (
+                              <details key={q.id} className="reader-q-card">
+                                <summary className="reader-q-summary">
+                                  <span className="q-badge">Q{idx + 1}</span>
+                                  <span className="q-title">{q.question}</span>
+                                  {isMastered && (
+                                    <span className="mastered-pill">
+                                      <Check size={11} /> Mastered
+                                    </span>
+                                  )}
+                                </summary>
+                                <div className="reader-q-content">
+                                  <div className="markdown-body">
+                                    <ReactMarkdown
+                                      remarkPlugins={[remarkGfm]}
+                                      components={{ code: CodeBlock }}
+                                    >
+                                      {q.answer || 'No answer details.'}
+                                    </ReactMarkdown>
+                                  </div>
+                                  <div className="reader-q-actions">
+                                    <button
+                                      className={`outline-button small-btn ${isMastered ? 'active-mastered' : ''}`}
+                                      onClick={() => toggleMastered(q.id)}
+                                    >
+                                      <Check size={13} /> {isMastered ? 'Marked Mastered' : 'Mark Mastered'}
+                                    </button>
+                                  </div>
+                                </div>
+                              </details>
+                            )
+                          })}
+                        </div>
+                      )}
+
+                      {/* Reader Footer Controls */}
+                      <div className="reader-footer">
+                        <button
+                          className="outline-button"
+                          onClick={() => toggleNoteCompleted(activeNote.path)}
+                        >
+                          <Check size={15} />{' '}
+                          {saved.completed.includes(activeNote.path) ? 'Completed' : 'Mark as completed'}
+                        </button>
+                        <button
+                          className="primary-button"
+                          onClick={() => setView('flashcards')}
+                        >
+                          <Zap size={16} /> Practice with Flashcards
+                        </button>
+                      </div>
+                    </article>
+                  ) : (
+                    <div className="empty-state">
+                      <BookOpen size={28} />
+                      <h3>No note selected</h3>
+                      <button className="primary-button" onClick={() => setView('dashboard')}>
+                        Return to overview
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* VIEW 3: ACTIVE RECALL FLASHCARDS */}
+          {view === 'flashcards' && (
+            <FlashcardDeck
+              questions={allQuestions}
+              saved={saved}
+              onToggleBookmark={toggleBookmark}
+              onToggleMastered={toggleMastered}
+              onOpenNote={openNote}
+              soundEnabled={saved.sound}
+            />
+          )}
+
+          {/* VIEW 4: MOCK INTERVIEW SIMULATOR */}
+          {view === 'mock' && (
+            <MockInterview
+              questions={allQuestions}
+              onExit={() => setView('dashboard')}
+              soundEnabled={saved.sound}
+            />
+          )}
+
+          {/* VIEW 5: QUESTION BANK EXPLORER */}
+          {view === 'explorer' && (
+            <QuestionExplorer
+              questions={allQuestions}
+              saved={saved}
+              onToggleBookmark={toggleBookmark}
+              onToggleMastered={toggleMastered}
+              onOpenNoteAtQuestion={openQuestionInReader}
+              soundEnabled={saved.sound}
+            />
+          )}
+
+          {/* VIEW 6: BOOKMARKS */}
+          {view === 'bookmarks' && (
+            <div className="bookmarks-view">
+              <div className="section-head">
+                <div>
+                  <h2>Saved Questions & Guides</h2>
+                  <p>Fast access to concepts and questions you flagged for review.</p>
+                </div>
+              </div>
+
+              {/* Bookmarked Questions */}
+              {bookmarkedQuestions.length > 0 && (
+                <div className="bm-section">
+                  <h3>Saved Questions ({bookmarkedQuestions.length})</h3>
+                  <div className="bm-questions-grid">
+                    {bookmarkedQuestions.map(q => (
+                      <div key={q.id} className="bm-q-card">
+                        <div className="bm-q-head">
+                          <span className="topic-tag">{q.noteTitle}</span>
+                          <button
+                            className="bookmark-active-btn"
+                            onClick={() => toggleBookmark(q.id)}
+                            title="Remove bookmark"
+                          >
+                            <Bookmark size={15} />
+                          </button>
+                        </div>
+                        <h4 className="bm-q-title">{q.question}</h4>
+                        <div className="bm-q-foot">
+                          <button
+                            className="text-link"
+                            onClick={() => openQuestionInReader(q)}
+                          >
+                            Read answer <ChevronRight size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Bookmarked Guides */}
+              {bookmarkedNotes.length > 0 && (
+                <div className="bm-section">
+                  <h3>Saved Guides ({bookmarkedNotes.length})</h3>
+                  <div className="notes-grid">
+                    {bookmarkedNotes.map(n => (
+                      <article key={n.path} className="note-card">
+                        <button className="note-card-title" onClick={() => openNote(n)}>
+                          {n.name}
+                        </button>
+                        <p className="note-excerpt">{n.path}</p>
+                        <div className="note-card-bottom">
+                          <button onClick={() => openNote(n)}>
+                            Open guide <ChevronRight size={14} />
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {bookmarkedQuestions.length === 0 && bookmarkedNotes.length === 0 && (
+                <div className="empty-state">
+                  <Bookmark size={32} />
+                  <h3>No bookmarks yet</h3>
+                  <p>Click the bookmark icon on any guide or interview question to save it here.</p>
+                  <button className="primary-button" onClick={() => setView('explorer')}>
+                    Explore Question Bank
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Footer */}
+          <footer className="app-footer">
+            <span>Built for developers preparing for high-impact technical interviews.</span>
+            <span>
+              Synced from{' '}
+              <a href={repositoryUrl} target="_blank" rel="noreferrer">
+                GitHub Repository <ExternalLink size={12} />
+              </a>
+            </span>
+          </footer>
+        </div>
+      </main>
+
+      {/* Global Command Palette Modal (Cmd+K) */}
+      <CommandPalette
+        isOpen={cmdOpen}
+        onClose={() => setCmdOpen(false)}
+        notes={notes}
+        questions={allQuestions}
+        onSelectNote={openNote}
+        onSelectQuestion={openQuestionInReader}
+      />
+
+      {/* Personal Notes Scratchpad Drawer */}
+      <ScratchpadModal
+        isOpen={scratchpadOpen}
+        onClose={() => setScratchpadOpen(false)}
+        topicTitle={activeNote?.name || 'General Notes'}
+      />
+    </div>
+  )
+}
