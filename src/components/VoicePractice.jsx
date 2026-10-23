@@ -20,8 +20,12 @@ import {
   ChevronRight,
   Flame,
   Award,
+  AlertTriangle,
+  X,
+  Keyboard,
+  Timer,
 } from 'lucide-react'
-import { analyzeSpeech } from '../utils/conceptAnalyzer'
+import { analyzeSpeech, extractKeyConcepts } from '../utils/conceptAnalyzer'
 import { playSound } from '../utils/audio'
 
 export default function VoicePractice({
@@ -35,6 +39,8 @@ export default function VoicePractice({
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [analysis, setAnalysis] = useState(null)
   const [isSupported, setIsSupported] = useState(true)
+  const [speechError, setSpeechError] = useState('')
+  const [verbalMode, setVerbalMode] = useState('auto') // 'auto' | 'timer_only'
 
   const recognitionRef = useRef(null)
   const timerRef = useRef(null)
@@ -53,32 +59,56 @@ export default function VoicePractice({
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
       setIsSupported(false)
+      setVerbalMode('timer_only')
       return
     }
 
-    const recognition = new SpeechRecognition()
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.lang = 'en-US'
+    try {
+      const recognition = new SpeechRecognition()
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.lang = 'en-US'
 
-    recognition.onresult = event => {
-      let currentResult = ''
-      for (let i = 0; i < event.results.length; i++) {
-        currentResult += event.results[i][0].transcript + ' '
+      recognition.onresult = event => {
+        let currentResult = ''
+        for (let i = 0; i < event.results.length; i++) {
+          currentResult += event.results[i][0].transcript + ' '
+        }
+        setTranscript(currentResult)
+        setSpeechError('')
       }
-      setTranscript(currentResult)
-    }
 
-    recognition.onerror = event => {
-      console.warn('Speech recognition error:', event.error)
-      setIsRecording(false)
-    }
+      recognition.onerror = event => {
+        console.warn('Speech recognition notice:', event.error)
+        setIsRecording(false)
 
-    recognition.onend = () => {
-      setIsRecording(false)
-    }
+        if (event.error === 'network') {
+          setSpeechError(
+            'Browser speech recognition cloud service unreachable (network error). This is common in Chromium/Linux or offline. Switched to Verbal Timer mode so you can still practice speaking out loud!'
+          )
+          setVerbalMode('timer_only')
+        } else if (event.error === 'not-allowed') {
+          setSpeechError(
+            'Microphone access was denied. Please allow microphone permissions or practice with the verbal timer.'
+          )
+          setVerbalMode('timer_only')
+        } else if (event.error === 'no-speech') {
+          setSpeechError('No speech detected. Speak closer to the microphone or try again.')
+        } else {
+          setSpeechError(`Speech recognition status: ${event.error}. You can practice with the verbal timer below.`)
+        }
+      }
 
-    recognitionRef.current = recognition
+      recognition.onend = () => {
+        setIsRecording(false)
+      }
+
+      recognitionRef.current = recognition
+    } catch (err) {
+      console.warn('SpeechRecognition init error:', err)
+      setIsSupported(false)
+      setVerbalMode('timer_only')
+    }
 
     return () => {
       if (recognitionRef.current) {
@@ -89,7 +119,7 @@ export default function VoicePractice({
     }
   }, [])
 
-  // Timer interval while recording
+  // Timer interval while recording or timer mode
   useEffect(() => {
     if (isRecording) {
       timerRef.current = setInterval(() => {
@@ -101,26 +131,38 @@ export default function VoicePractice({
     return () => clearInterval(timerRef.current)
   }, [isRecording])
 
-  // Toggle Speech Recording
+  // Toggle Speech Recording or Verbal Timer
   function toggleRecording() {
-    if (!recognitionRef.current && isSupported) return
-
     if (isRecording) {
-      try {
-        recognitionRef.current.stop()
-      } catch {}
+      // Stop recording
+      if (recognitionRef.current && verbalMode !== 'timer_only') {
+        try {
+          recognitionRef.current.stop()
+        } catch {}
+      }
       setIsRecording(false)
       playSound('click', soundEnabled)
     } else {
-      setTranscript('')
+      // Start recording
       setElapsedSeconds(0)
       setAnalysis(null)
-      try {
-        recognitionRef.current.start()
+      setSpeechError('')
+
+      if (verbalMode === 'timer_only' || !isSupported) {
+        // Run timer mode directly without external network dependency
         setIsRecording(true)
         playSound('flip', soundEnabled)
-      } catch (err) {
-        console.error('Could not start recognition:', err)
+      } else {
+        try {
+          recognitionRef.current.start()
+          setIsRecording(true)
+          playSound('flip', soundEnabled)
+        } catch (err) {
+          console.warn('SpeechRecognition start failed, falling back to verbal timer:', err)
+          setSpeechError('Microphone cloud recognition unavailable. Switched to Verbal Answer Timer.')
+          setVerbalMode('timer_only')
+          setIsRecording(true)
+        }
       }
     }
   }
@@ -128,10 +170,12 @@ export default function VoicePractice({
   // Analyze answer
   function handleAnalyze() {
     playSound('success', soundEnabled)
-    if (isRecording && recognitionRef.current) {
-      try {
-        recognitionRef.current.stop()
-      } catch {}
+    if (isRecording) {
+      if (recognitionRef.current && verbalMode !== 'timer_only') {
+        try {
+          recognitionRef.current.stop()
+        } catch {}
+      }
       setIsRecording(false)
     }
 
@@ -144,6 +188,23 @@ export default function VoicePractice({
     setAnalysis(result)
   }
 
+  // Load sample answer for current question
+  function handleSimulateSample() {
+    playSound('click', soundEnabled)
+    setSpeechError('')
+    if (currentQ?.answer) {
+      // Create a natural spoken version of the answer
+      const sampleText = currentQ.answer
+        .replace(/```[\s\S]*?```/g, '')
+        .replace(/^[#*-]\s+/gm, '')
+        .replace(/\n+/g, ' ')
+        .trim()
+        .slice(0, 320)
+      setTranscript(`In my experience, ${sampleText}`)
+      setElapsedSeconds(38)
+    }
+  }
+
   // Shuffle question
   function handleShuffle() {
     playSound('click', soundEnabled)
@@ -152,8 +213,13 @@ export default function VoicePractice({
     setTranscript('')
     setElapsedSeconds(0)
     setAnalysis(null)
-    if (isRecording && recognitionRef.current) {
-      recognitionRef.current.stop()
+    setSpeechError('')
+    if (isRecording) {
+      if (recognitionRef.current && verbalMode !== 'timer_only') {
+        try {
+          recognitionRef.current.stop()
+        } catch {}
+      }
       setIsRecording(false)
     }
   }
@@ -187,6 +253,7 @@ export default function VoicePractice({
               setCurrentQuestionIndex(0)
               setTranscript('')
               setAnalysis(null)
+              setSpeechError('')
             }}
           >
             {topics.map(t => (
@@ -218,6 +285,24 @@ export default function VoicePractice({
 
           {/* Recorder Controls */}
           <div className="recorder-panel">
+            {/* Friendly Network/Permission Alert Banner if Speech Error */}
+            {speechError && (
+              <div className="speech-notice-banner">
+                <AlertCircle size={16} className="text-amber-400 shrink-0" />
+                <div className="speech-notice-text">
+                  <strong>Speech Network Notice:</strong>
+                  <span>{speechError}</span>
+                </div>
+                <button
+                  className="speech-notice-close"
+                  onClick={() => setSpeechError('')}
+                  title="Dismiss notice"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
             <div className="recorder-top">
               <div className="timer-badge">
                 <Clock size={14} />
@@ -227,7 +312,7 @@ export default function VoicePractice({
               {isRecording && (
                 <div className="recording-indicator">
                   <span className="rec-dot pulse-dot" />
-                  <span>Listening...</span>
+                  <span>{verbalMode === 'timer_only' ? 'Speaking timer active...' : 'Listening...'}</span>
                   <div className="voice-wave">
                     <span className="wave-bar" />
                     <span className="wave-bar" />
@@ -237,11 +322,18 @@ export default function VoicePractice({
                 </div>
               )}
 
-              {!isSupported && (
-                <span className="text-amber-400 text-xs">
-                  (Mic unsupported in this browser — type response below)
-                </span>
-              )}
+              {/* Mode indicator */}
+              <div className="verbal-mode-indicator">
+                {verbalMode === 'timer_only' ? (
+                  <span className="mode-pill timer">
+                    <Timer size={12} /> Verbal Timer Mode
+                  </span>
+                ) : (
+                  <span className="mode-pill mic">
+                    <Mic size={12} /> Mic Active
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Answer Transcribed Textarea */}
@@ -250,8 +342,10 @@ export default function VoicePractice({
                 className="transcript-textarea custom-scrollbar"
                 placeholder={
                   isRecording
-                    ? 'Speak clearly into your microphone... your words will appear here in real-time.'
-                    : 'Click "Start Speaking" or type your spoken response here...'
+                    ? verbalMode === 'timer_only'
+                      ? 'Timer is running! Speak your answer out loud. You can also jot down your key points here.'
+                      : 'Speak clearly into your microphone... your words will appear here in real-time.'
+                    : 'Click "Start Speaking" or type your spoken response here to evaluate...'
                 }
                 value={transcript}
                 onChange={e => setTranscript(e.target.value)}
@@ -260,15 +354,19 @@ export default function VoicePractice({
 
             {/* Action Buttons */}
             <div className="recorder-actions">
-              {isSupported && (
-                <button
-                  className={`mic-toggle-btn ${isRecording ? 'recording' : ''}`}
-                  onClick={toggleRecording}
-                >
-                  {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
-                  <span>{isRecording ? 'Stop Speaking' : 'Start Speaking'}</span>
-                </button>
-              )}
+              <button
+                className={`mic-toggle-btn ${isRecording ? 'recording' : ''}`}
+                onClick={toggleRecording}
+              >
+                {isRecording ? <Pause size={16} /> : verbalMode === 'timer_only' ? <Play size={16} /> : <Mic size={16} />}
+                <span>
+                  {isRecording
+                    ? 'Stop Timer & Recording'
+                    : verbalMode === 'timer_only'
+                    ? 'Start Verbal Answer Timer'
+                    : 'Start Speaking'}
+                </span>
+              </button>
 
               <button
                 className="analyze-btn"
@@ -280,11 +378,21 @@ export default function VoicePractice({
               </button>
 
               <button
+                className="sample-text-btn"
+                onClick={handleSimulateSample}
+                title="Fill a simulated candidate answer to test the analyzer"
+              >
+                <Sparkles size={13} />
+                <span>Simulate Answer</span>
+              </button>
+
+              <button
                 className="clear-btn"
                 onClick={() => {
                   setTranscript('')
                   setAnalysis(null)
                   setElapsedSeconds(0)
+                  setSpeechError('')
                 }}
                 title="Clear transcript"
               >
