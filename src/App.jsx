@@ -62,6 +62,7 @@ import CodePlayground from './components/CodePlayground'
 import DailyRevision from './components/DailyRevision'
 import CramSheet from './components/CramSheet'
 import VoicePractice from './components/VoicePractice'
+import BehavioralDesignHub from './components/BehavioralDesignHub'
 
 const STORAGE_KEY = 'devprep_interview_hub_v2'
 
@@ -423,6 +424,17 @@ export default function App() {
           </button>
 
           <button
+            className={view === 'behavioral' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setView('behavioral')
+              setMobileMenu(false)
+            }}
+          >
+            <Cpu size={17} /> STAR & System Design
+            <span className="nav-badge-hot">Senior</span>
+          </button>
+
+          <button
             className={view === 'explorer' ? 'nav-item active' : 'nav-item'}
             onClick={() => {
               setView('explorer')
@@ -543,6 +555,7 @@ export default function App() {
                 {view === 'playground' && 'Interactive Code Playground'}
                 {view === 'cram' && '30-Minute Interview Day Cram Sheet'}
                 {view === 'voice' && 'Verbal Articulation & Voice Practice'}
+                {view === 'behavioral' && 'STAR Behavioral & System Design Simulator'}
                 {view === 'explorer' && 'Question Bank'}
                 {view === 'bookmarks' && 'Saved Questions & Notes'}
               </strong>
@@ -1073,6 +1086,11 @@ export default function App() {
               questions={allQuestions}
               soundEnabled={saved.sound}
             />
+          )}
+
+          {/* VIEW: STAR BEHAVIORAL & SYSTEM DESIGN */}
+          {view === 'behavioral' && (
+            <BehavioralDesignHub soundEnabled={saved.sound} />
           )}
 
           {/* VIEW 5: QUESTION BANK EXPLORER */}
