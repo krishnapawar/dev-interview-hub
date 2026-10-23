@@ -591,21 +591,21 @@ export default function App() {
               <Menu size={20} />
             </button>
             <div className="breadcrumb">
-              <span>DevPrep</span>
-              <ChevronRight size={14} />
-              <strong>
+              <span className="breadcrumb-root">DevPrep</span>
+              <ChevronRight size={14} className="breadcrumb-arrow" />
+              <strong className="breadcrumb-current">
                 {view === 'dashboard' && 'Interview Dashboard'}
                 {view === 'reader' && (activeNote?.name || 'Technical Note')}
                 {view === 'flashcards' && 'Active Recall Flashcards'}
-                {view === 'srs' && 'Daily Revision & Spaced Repetition (SRS)'}
-                {view === 'mock' && 'Mock Interview Simulator'}
-                {view === 'playground' && 'Interactive Code Playground'}
-                {view === 'cram' && '30-Minute Interview Day Cram Sheet'}
-                {view === 'voice' && 'Verbal Articulation & Voice Practice'}
-                {view === 'behavioral' && 'STAR Behavioral & System Design Simulator'}
-                {view === 'studio' && 'Custom Question Studio & Company Tagging'}
+                {view === 'srs' && 'Daily Revision & SRS'}
+                {view === 'mock' && 'Mock Interview'}
+                {view === 'playground' && 'Code Playground'}
+                {view === 'cram' && '30-Min Cram Sheet'}
+                {view === 'voice' && 'Voice Practice'}
+                {view === 'behavioral' && 'STAR & System Design'}
+                {view === 'studio' && 'Question Studio'}
                 {view === 'explorer' && 'Question Bank'}
-                {view === 'bookmarks' && 'Saved Questions & Notes'}
+                {view === 'bookmarks' && 'Saved & Bookmarks'}
               </strong>
             </div>
           </div>
@@ -1262,6 +1262,66 @@ export default function App() {
           </footer>
         </div>
       </main>
+
+      {/* Mobile Bottom Navigation Bar for touch devices */}
+      <nav className="mobile-bottom-nav" aria-label="Quick mobile navigation">
+        <button
+          type="button"
+          className={`mobile-nav-tab ${view === 'dashboard' ? 'active' : ''}`}
+          onClick={() => {
+            setView('dashboard')
+            window.scrollTo({ top: 0, behavior: 'smooth' })
+          }}
+        >
+          <LayoutDashboard size={18} />
+          <span>Home</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-tab ${view === 'flashcards' ? 'active' : ''}`}
+          onClick={() => {
+            setView('flashcards')
+            window.scrollTo({ top: 0, behavior: 'smooth' })
+          }}
+        >
+          <Zap size={18} />
+          <span>Cards</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-tab ${view === 'playground' ? 'active' : ''}`}
+          onClick={() => {
+            setView('playground')
+            window.scrollTo({ top: 0, behavior: 'smooth' })
+          }}
+        >
+          <Code2 size={18} />
+          <span>Code</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-tab ${view === 'voice' ? 'active' : ''}`}
+          onClick={() => {
+            setView('voice')
+            window.scrollTo({ top: 0, behavior: 'smooth' })
+          }}
+        >
+          <Volume2 size={18} />
+          <span>Voice</span>
+        </button>
+
+        <button
+          type="button"
+          className="mobile-nav-tab"
+          onClick={() => setMobileMenu(true)}
+        >
+          <Menu size={18} />
+          <span>Menu</span>
+        </button>
+      </nav>
 
       {/* Global Command Palette Modal (Cmd+K) */}
       <CommandPalette
