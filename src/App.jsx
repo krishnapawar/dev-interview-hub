@@ -59,13 +59,20 @@ import MockInterview from './components/MockInterview'
 import QuestionExplorer from './components/QuestionExplorer'
 import ScratchpadModal from './components/ScratchpadModal'
 import CodePlayground from './components/CodePlayground'
+import DailyRevision from './components/DailyRevision'
 
 const STORAGE_KEY = 'devprep_interview_hub_v2'
 
 function readSaved() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return JSON.parse(raw)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      return {
+        ...parsed,
+        srs: parsed.srs || { cards: {}, activityLog: {} },
+      }
+    }
   } catch {}
   return {
     bookmarks: [],
@@ -74,6 +81,7 @@ function readSaved() {
     theme: 'dark',
     sound: true,
     fontSize: 'normal', // 'normal' | 'comfortable' | 'large'
+    srs: { cards: {}, activityLog: {} },
   }
 }
 
@@ -358,6 +366,17 @@ export default function App() {
           </button>
 
           <button
+            className={view === 'srs' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setView('srs')
+              setMobileMenu(false)
+            }}
+          >
+            <Flame size={17} /> Daily SRS Queue
+            <span className="nav-badge-hot">Leitner</span>
+          </button>
+
+          <button
             className={view === 'mock' ? 'nav-item active' : 'nav-item'}
             onClick={() => {
               setView('mock')
@@ -495,6 +514,7 @@ export default function App() {
                 {view === 'dashboard' && 'Interview Dashboard'}
                 {view === 'reader' && (activeNote?.name || 'Technical Note')}
                 {view === 'flashcards' && 'Active Recall Flashcards'}
+                {view === 'srs' && 'Daily Revision & Spaced Repetition (SRS)'}
                 {view === 'mock' && 'Mock Interview Simulator'}
                 {view === 'playground' && 'Interactive Code Playground'}
                 {view === 'explorer' && 'Question Bank'}
@@ -574,6 +594,12 @@ export default function App() {
                       onClick={() => setView('flashcards')}
                     >
                       <Zap size={16} /> Start Flashcard Practice <ChevronRight size={16} />
+                    </button>
+                    <button
+                      className="hero-secondary"
+                      onClick={() => setView('srs')}
+                    >
+                      <Flame size={16} className="text-orange-400" /> Daily SRS Queue
                     </button>
                     <button
                       className="hero-secondary"
@@ -977,6 +1003,19 @@ export default function App() {
               onToggleMastered={toggleMastered}
               onOpenNote={openNote}
               soundEnabled={saved.sound}
+            />
+          )}
+
+          {/* VIEW: DAILY REVISION & SRS */}
+          {view === 'srs' && (
+            <DailyRevision
+              allQuestions={allQuestions}
+              srsData={saved.srs || { cards: {}, activityLog: {} }}
+              onUpdateSRS={newSrs => setSaved(s => ({ ...s, srs: newSrs }))}
+              onToggleBookmark={toggleBookmark}
+              savedBookmarks={saved.bookmarks || []}
+              soundEnabled={saved.sound}
+              onFinishSession={() => setView('dashboard')}
             />
           )}
 
