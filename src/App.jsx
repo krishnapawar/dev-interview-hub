@@ -60,6 +60,7 @@ import QuestionExplorer from './components/QuestionExplorer'
 import ScratchpadModal from './components/ScratchpadModal'
 import CodePlayground from './components/CodePlayground'
 import DailyRevision from './components/DailyRevision'
+import CramSheet from './components/CramSheet'
 
 const STORAGE_KEY = 'devprep_interview_hub_v2'
 
@@ -399,6 +400,17 @@ export default function App() {
           </button>
 
           <button
+            className={view === 'cram' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setView('cram')
+              setMobileMenu(false)
+            }}
+          >
+            <Sparkles size={17} /> 30-Min Cram Sheet
+            <span className="nav-badge-hot">Printable</span>
+          </button>
+
+          <button
             className={view === 'explorer' ? 'nav-item active' : 'nav-item'}
             onClick={() => {
               setView('explorer')
@@ -517,6 +529,7 @@ export default function App() {
                 {view === 'srs' && 'Daily Revision & Spaced Repetition (SRS)'}
                 {view === 'mock' && 'Mock Interview Simulator'}
                 {view === 'playground' && 'Interactive Code Playground'}
+                {view === 'cram' && '30-Minute Interview Day Cram Sheet'}
                 {view === 'explorer' && 'Question Bank'}
                 {view === 'bookmarks' && 'Saved Questions & Notes'}
               </strong>
@@ -1031,6 +1044,14 @@ export default function App() {
           {/* VIEW: CODE PLAYGROUND & CHALLENGES */}
           {view === 'playground' && (
             <CodePlayground soundEnabled={saved.sound} />
+          )}
+
+          {/* VIEW: 30-MINUTE CRAM SHEET */}
+          {view === 'cram' && (
+            <CramSheet
+              bookmarkedQuestions={bookmarkedQuestions}
+              soundEnabled={saved.sound}
+            />
           )}
 
           {/* VIEW 5: QUESTION BANK EXPLORER */}
