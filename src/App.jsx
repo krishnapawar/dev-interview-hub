@@ -58,6 +58,7 @@ import FlashcardDeck from './components/FlashcardDeck'
 import MockInterview from './components/MockInterview'
 import QuestionExplorer from './components/QuestionExplorer'
 import ScratchpadModal from './components/ScratchpadModal'
+import CodePlayground from './components/CodePlayground'
 
 const STORAGE_KEY = 'devprep_interview_hub_v2'
 
@@ -368,6 +369,17 @@ export default function App() {
           </button>
 
           <button
+            className={view === 'playground' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setView('playground')
+              setMobileMenu(false)
+            }}
+          >
+            <Code2 size={17} /> Code & Challenges
+            <span className="nav-badge-hot">Sandbox</span>
+          </button>
+
+          <button
             className={view === 'explorer' ? 'nav-item active' : 'nav-item'}
             onClick={() => {
               setView('explorer')
@@ -484,6 +496,7 @@ export default function App() {
                 {view === 'reader' && (activeNote?.name || 'Technical Note')}
                 {view === 'flashcards' && 'Active Recall Flashcards'}
                 {view === 'mock' && 'Mock Interview Simulator'}
+                {view === 'playground' && 'Interactive Code Playground'}
                 {view === 'explorer' && 'Question Bank'}
                 {view === 'bookmarks' && 'Saved Questions & Notes'}
               </strong>
@@ -567,6 +580,12 @@ export default function App() {
                       onClick={() => setView('mock')}
                     >
                       <Trophy size={16} /> Mock Interview Round
+                    </button>
+                    <button
+                      className="hero-secondary"
+                      onClick={() => setView('playground')}
+                    >
+                      <Code2 size={16} /> Code Playground
                     </button>
                   </div>
                 </div>
@@ -968,6 +987,11 @@ export default function App() {
               onExit={() => setView('dashboard')}
               soundEnabled={saved.sound}
             />
+          )}
+
+          {/* VIEW: CODE PLAYGROUND & CHALLENGES */}
+          {view === 'playground' && (
+            <CodePlayground soundEnabled={saved.sound} />
           )}
 
           {/* VIEW 5: QUESTION BANK EXPLORER */}
