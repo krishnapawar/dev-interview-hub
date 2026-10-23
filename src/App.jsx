@@ -61,6 +61,7 @@ import ScratchpadModal from './components/ScratchpadModal'
 import CodePlayground from './components/CodePlayground'
 import DailyRevision from './components/DailyRevision'
 import CramSheet from './components/CramSheet'
+import VoicePractice from './components/VoicePractice'
 
 const STORAGE_KEY = 'devprep_interview_hub_v2'
 
@@ -411,6 +412,17 @@ export default function App() {
           </button>
 
           <button
+            className={view === 'voice' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setView('voice')
+              setMobileMenu(false)
+            }}
+          >
+            <Volume2 size={17} /> Voice Practice
+            <span className="nav-badge-timer">Speech</span>
+          </button>
+
+          <button
             className={view === 'explorer' ? 'nav-item active' : 'nav-item'}
             onClick={() => {
               setView('explorer')
@@ -530,6 +542,7 @@ export default function App() {
                 {view === 'mock' && 'Mock Interview Simulator'}
                 {view === 'playground' && 'Interactive Code Playground'}
                 {view === 'cram' && '30-Minute Interview Day Cram Sheet'}
+                {view === 'voice' && 'Verbal Articulation & Voice Practice'}
                 {view === 'explorer' && 'Question Bank'}
                 {view === 'bookmarks' && 'Saved Questions & Notes'}
               </strong>
@@ -1050,6 +1063,14 @@ export default function App() {
           {view === 'cram' && (
             <CramSheet
               bookmarkedQuestions={bookmarkedQuestions}
+              soundEnabled={saved.sound}
+            />
+          )}
+
+          {/* VIEW: VOICE PRACTICE */}
+          {view === 'voice' && (
+            <VoicePractice
+              questions={allQuestions}
               soundEnabled={saved.sound}
             />
           )}
