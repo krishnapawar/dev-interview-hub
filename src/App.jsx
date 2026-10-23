@@ -31,6 +31,7 @@ import {
   Menu,
   Minimize2,
   Moon,
+  PlusCircle,
   RefreshCw,
   Search,
   Server,
@@ -63,6 +64,7 @@ import DailyRevision from './components/DailyRevision'
 import CramSheet from './components/CramSheet'
 import VoicePractice from './components/VoicePractice'
 import BehavioralDesignHub from './components/BehavioralDesignHub'
+import CustomQuestionStudio from './components/CustomQuestionStudio'
 
 const STORAGE_KEY = 'devprep_interview_hub_v2'
 
@@ -74,6 +76,7 @@ function readSaved() {
       return {
         ...parsed,
         srs: parsed.srs || { cards: {}, activityLog: {} },
+        customQuestions: parsed.customQuestions || [],
       }
     }
   } catch {}
@@ -85,6 +88,7 @@ function readSaved() {
     sound: true,
     fontSize: 'normal', // 'normal' | 'comfortable' | 'large'
     srs: { cards: {}, activityLog: {} },
+    customQuestions: [],
   }
 }
 
@@ -146,10 +150,41 @@ export default function App() {
     }
   }
 
-  // Extract all questions from all notes
+  // Extract all questions from notes and merge with custom questions
   const allQuestions = useMemo(() => {
-    return notes.flatMap(note => extractQuestionsFromNote(note))
-  }, [notes])
+    const fromNotes = notes.flatMap(note => extractQuestionsFromNote(note))
+    const custom = (saved.customQuestions || []).map(q => ({
+      ...q,
+      noteTitle: q.noteTitle || `Custom: ${q.category || 'General'}`,
+      notePath: q.notePath || 'custom',
+    }))
+    return [...custom, ...fromNotes]
+  }, [notes, saved.customQuestions])
+
+  function handleAddCustomQuestion(newQ) {
+    setSaved(s => ({
+      ...s,
+      customQuestions: [newQ, ...(s.customQuestions || [])],
+    }))
+  }
+
+  function handleDeleteCustomQuestion(id) {
+    setSaved(s => ({
+      ...s,
+      customQuestions: (s.customQuestions || []).filter(q => q.id !== id),
+    }))
+  }
+
+  function handleImportCustomQuestions(imported) {
+    setSaved(s => {
+      const existingIds = new Set((s.customQuestions || []).map(q => q.id))
+      const unique = imported.filter(q => !existingIds.has(q.id))
+      return {
+        ...s,
+        customQuestions: [...unique, ...(s.customQuestions || [])],
+      }
+    })
+  }
 
   // Outline for the active note
   const activeOutline = useMemo(() => {
@@ -435,6 +470,17 @@ export default function App() {
           </button>
 
           <button
+            className={view === 'studio' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setView('studio')
+              setMobileMenu(false)
+            }}
+          >
+            <PlusCircle size={17} /> Question Studio
+            <span className="nav-badge-hot">Custom</span>
+          </button>
+
+          <button
             className={view === 'explorer' ? 'nav-item active' : 'nav-item'}
             onClick={() => {
               setView('explorer')
@@ -556,6 +602,7 @@ export default function App() {
                 {view === 'cram' && '30-Minute Interview Day Cram Sheet'}
                 {view === 'voice' && 'Verbal Articulation & Voice Practice'}
                 {view === 'behavioral' && 'STAR Behavioral & System Design Simulator'}
+                {view === 'studio' && 'Custom Question Studio & Company Tagging'}
                 {view === 'explorer' && 'Question Bank'}
                 {view === 'bookmarks' && 'Saved Questions & Notes'}
               </strong>
@@ -1091,6 +1138,17 @@ export default function App() {
           {/* VIEW: STAR BEHAVIORAL & SYSTEM DESIGN */}
           {view === 'behavioral' && (
             <BehavioralDesignHub soundEnabled={saved.sound} />
+          )}
+
+          {/* VIEW: CUSTOM QUESTION STUDIO */}
+          {view === 'studio' && (
+            <CustomQuestionStudio
+              customQuestions={saved.customQuestions || []}
+              onAddQuestion={handleAddCustomQuestion}
+              onDeleteQuestion={handleDeleteCustomQuestion}
+              onImportQuestions={handleImportCustomQuestions}
+              soundEnabled={saved.sound}
+            />
           )}
 
           {/* VIEW 5: QUESTION BANK EXPLORER */}
