@@ -5604,6 +5604,245 @@ a {
   max-width: 380px;
 }
 
+/* ========================================================
+   CANDIDATE READINESS RADAR & DIAGNOSTICS STYLES
+   ======================================================== */
+.radar-dashboard-section {
+  margin-bottom: 24px;
+}
+
+.radar-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.radar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.radar-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.radar-title-wrap h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.radar-title-wrap p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.grade-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-subtle);
+  border: 1.5px solid var(--accent);
+  padding: 8px 16px;
+  border-radius: 14px;
+}
+
+.grade-letter {
+  font-size: 28px;
+  font-weight: 800;
+  font-family: 'Outfit', sans-serif;
+  line-height: 1;
+}
+
+.grade-text strong {
+  display: block;
+  font-size: 13px;
+  color: var(--text-heading);
+}
+
+.grade-text small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.radar-body-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 24px;
+  align-items: center;
+}
+
+@media (max-width: 800px) {
+  .radar-body-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.radar-visual-col {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.radar-svg {
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+  overflow: visible;
+}
+
+.radar-bars-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.domain-bars-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.domain-bar-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bar-item-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.bar-domain-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.bar-count-tag {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.bar-tier-tag {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+.bar-tier-tag.interview-ready { background: rgba(52, 211, 153, 0.15); color: #34d399; }
+.bar-tier-tag.proficient { background: rgba(96, 165, 250, 0.15); color: #60a5fa; }
+.bar-tier-tag.in-progress { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.bar-tier-tag.needs-focus { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+
+.bar-track {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-subtle);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+/* Diagnostic Recommendation Box */
+.diagnostic-recommendation-box {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 14px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rec-box-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rec-box-header strong {
+  display: block;
+  font-size: 13.5px;
+  color: #fbbf24;
+}
+
+.rec-box-header p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.rec-questions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.rec-q-card {
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.rec-q-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.rec-q-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-heading);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rec-q-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #a78bfa;
+  font-weight: 600;
+}
+
+
 
 
 

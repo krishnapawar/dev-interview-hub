@@ -65,6 +65,7 @@ import CramSheet from './components/CramSheet'
 import VoicePractice from './components/VoicePractice'
 import BehavioralDesignHub from './components/BehavioralDesignHub'
 import CustomQuestionStudio from './components/CustomQuestionStudio'
+import ReadinessRadar from './components/ReadinessRadar'
 
 const STORAGE_KEY = 'devprep_interview_hub_v2'
 
@@ -763,6 +764,15 @@ export default function App() {
                   <div className="stat-note">Guides marked reviewed</div>
                 </div>
               </section>
+
+              {/* Candidate Readiness Radar & Diagnostics */}
+              <ReadinessRadar
+                notes={notes}
+                allQuestions={allQuestions}
+                saved={saved}
+                onOpenQuestion={openQuestionInReader}
+                soundEnabled={saved.sound}
+              />
 
               {/* Main Topics / Guides Grid */}
               <section className="section-block">
