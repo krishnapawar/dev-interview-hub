@@ -24,8 +24,9 @@ import {
   X,
   Keyboard,
   Timer,
+  Info,
 } from 'lucide-react'
-import { analyzeSpeech, extractKeyConcepts } from '../utils/conceptAnalyzer'
+import { analyzeSpeech } from '../utils/conceptAnalyzer'
 import { playSound } from '../utils/audio'
 
 export default function VoicePractice({
@@ -38,12 +39,16 @@ export default function VoicePractice({
   const [transcript, setTranscript] = useState('')
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [analysis, setAnalysis] = useState(null)
-  const [isSupported, setIsSupported] = useState(true)
   const [speechError, setSpeechError] = useState('')
-  const [verbalMode, setVerbalMode] = useState('auto') // 'auto' | 'timer_only'
+  // Default to timer_only if Linux/Chromium or user preference
+  const isLikelyLinux = typeof navigator !== 'undefined' && (/Linux/i.test(navigator.userAgent || '') || /Chromium/i.test(navigator.userAgent || ''))
+  const [practiceMode, setPracticeMode] = useState(isLikelyLinux ? 'timer' : 'mic') // 'mic' | 'timer'
 
   const recognitionRef = useRef(null)
   const timerRef = useRef(null)
+  const audioContextRef = useRef(null)
+  const mediaStreamRef = useRef(null)
+  const [micActivity, setMicActivity] = useState(false)
 
   // Filter questions by topic
   const topics = ['All', ...new Set(questions.map(q => q.noteTitle || 'General'))]
@@ -54,12 +59,11 @@ export default function VoicePractice({
 
   const currentQ = pool[currentQuestionIndex] || questions[0]
 
-  // Setup Web Speech Recognition
+  // Setup Web Speech Recognition when in 'mic' mode
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
-      setIsSupported(false)
-      setVerbalMode('timer_only')
+      setPracticeMode('timer')
       return
     }
 
@@ -79,23 +83,18 @@ export default function VoicePractice({
       }
 
       recognition.onerror = event => {
-        console.warn('Speech recognition notice:', event.error)
         setIsRecording(false)
-
         if (event.error === 'network') {
           setSpeechError(
-            'Browser speech recognition cloud service unreachable (network error). This is common in Chromium/Linux or offline. Switched to Verbal Timer mode so you can still practice speaking out loud!'
+            'Browser cloud speech API is blocked or unreachable (Google disables cloud STT in Linux Chromium). Switched to Verbal Timer Mode so you can practice speaking out loud without interruptions!'
           )
-          setVerbalMode('timer_only')
+          setPracticeMode('timer')
         } else if (event.error === 'not-allowed') {
-          setSpeechError(
-            'Microphone access was denied. Please allow microphone permissions or practice with the verbal timer.'
-          )
-          setVerbalMode('timer_only')
-        } else if (event.error === 'no-speech') {
-          setSpeechError('No speech detected. Speak closer to the microphone or try again.')
-        } else {
-          setSpeechError(`Speech recognition status: ${event.error}. You can practice with the verbal timer below.`)
+          setSpeechError('Microphone permission was denied. Switched to Verbal Timer Mode.')
+          setPracticeMode('timer')
+        } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          setSpeechError(`Speech notice: ${event.error}. Switched to Verbal Timer Mode.`)
+          setPracticeMode('timer')
         }
       }
 
@@ -104,10 +103,8 @@ export default function VoicePractice({
       }
 
       recognitionRef.current = recognition
-    } catch (err) {
-      console.warn('SpeechRecognition init error:', err)
-      setIsSupported(false)
-      setVerbalMode('timer_only')
+    } catch {
+      setPracticeMode('timer')
     }
 
     return () => {
@@ -119,7 +116,7 @@ export default function VoicePractice({
     }
   }, [])
 
-  // Timer interval while recording or timer mode
+  // Timer interval while recording or verbal timer is active
   useEffect(() => {
     if (isRecording) {
       timerRef.current = setInterval(() => {
@@ -131,25 +128,63 @@ export default function VoicePractice({
     return () => clearInterval(timerRef.current)
   }, [isRecording])
 
+  // Local Microphone Volume Feedback via Web Audio API (100% offline, works on Linux)
+  async function startLocalMic() {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        mediaStreamRef.current = stream
+        const AudioCtx = window.AudioContext || window.webkitAudioContext
+        if (AudioCtx) {
+          const ctx = new AudioCtx()
+          audioContextRef.current = ctx
+          const analyser = ctx.createAnalyser()
+          analyser.fftSize = 32
+          const source = ctx.createMediaStreamSource(stream)
+          source.connect(analyser)
+          setMicActivity(true)
+        }
+      } catch (err) {
+        // mic not allowed or unavailable; fallback to visual timer animation
+        setMicActivity(false)
+      }
+    }
+  }
+
+  function stopLocalMic() {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(t => t.stop())
+      mediaStreamRef.current = null
+    }
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close()
+      } catch {}
+      audioContextRef.current = null
+    }
+    setMicActivity(false)
+  }
+
   // Toggle Speech Recording or Verbal Timer
   function toggleRecording() {
     if (isRecording) {
-      // Stop recording
-      if (recognitionRef.current && verbalMode !== 'timer_only') {
+      // Stop
+      if (recognitionRef.current && practiceMode === 'mic') {
         try {
           recognitionRef.current.stop()
         } catch {}
       }
+      stopLocalMic()
       setIsRecording(false)
       playSound('click', soundEnabled)
     } else {
-      // Start recording
+      // Start
       setElapsedSeconds(0)
       setAnalysis(null)
       setSpeechError('')
+      startLocalMic()
 
-      if (verbalMode === 'timer_only' || !isSupported) {
-        // Run timer mode directly without external network dependency
+      if (practiceMode === 'timer') {
         setIsRecording(true)
         playSound('flip', soundEnabled)
       } else {
@@ -158,10 +193,9 @@ export default function VoicePractice({
           setIsRecording(true)
           playSound('flip', soundEnabled)
         } catch (err) {
-          console.warn('SpeechRecognition start failed, falling back to verbal timer:', err)
-          setSpeechError('Microphone cloud recognition unavailable. Switched to Verbal Answer Timer.')
-          setVerbalMode('timer_only')
+          setPracticeMode('timer')
           setIsRecording(true)
+          playSound('flip', soundEnabled)
         }
       }
     }
@@ -171,11 +205,12 @@ export default function VoicePractice({
   function handleAnalyze() {
     playSound('success', soundEnabled)
     if (isRecording) {
-      if (recognitionRef.current && verbalMode !== 'timer_only') {
+      if (recognitionRef.current && practiceMode === 'mic') {
         try {
           recognitionRef.current.stop()
         } catch {}
       }
+      stopLocalMic()
       setIsRecording(false)
     }
 
@@ -193,7 +228,6 @@ export default function VoicePractice({
     playSound('click', soundEnabled)
     setSpeechError('')
     if (currentQ?.answer) {
-      // Create a natural spoken version of the answer
       const sampleText = currentQ.answer
         .replace(/```[\s\S]*?```/g, '')
         .replace(/^[#*-]\s+/gm, '')
@@ -201,7 +235,7 @@ export default function VoicePractice({
         .trim()
         .slice(0, 320)
       setTranscript(`In my experience, ${sampleText}`)
-      setElapsedSeconds(38)
+      setElapsedSeconds(42)
     }
   }
 
@@ -215,11 +249,12 @@ export default function VoicePractice({
     setAnalysis(null)
     setSpeechError('')
     if (isRecording) {
-      if (recognitionRef.current && verbalMode !== 'timer_only') {
+      if (recognitionRef.current && practiceMode === 'mic') {
         try {
           recognitionRef.current.stop()
         } catch {}
       }
+      stopLocalMic()
       setIsRecording(false)
     }
   }
@@ -241,7 +276,7 @@ export default function VoicePractice({
           </div>
           <h2>Speech-to-Text Voice Practice & Concept Matcher</h2>
           <p>
-            Simulate answering interviewers out loud. Speak into your microphone and analyze your technical keyword coverage, speaking pace, and clarity against the benchmark answer.
+            Simulate answering interviewers out loud under timed pressure. Test your spoken fluency, articulation speed (WPM), and key technical keyword coverage.
           </p>
         </div>
 
@@ -285,12 +320,49 @@ export default function VoicePractice({
 
           {/* Recorder Controls */}
           <div className="recorder-panel">
-            {/* Friendly Network/Permission Alert Banner if Speech Error */}
+            {/* Mode Switcher Tabs */}
+            <div className="practice-mode-bar">
+              <div className="mode-toggle-group">
+                <button
+                  type="button"
+                  className={`mode-btn ${practiceMode === 'timer' ? 'active' : ''}`}
+                  onClick={() => {
+                    setPracticeMode('timer')
+                    setSpeechError('')
+                  }}
+                  title="Practice answering out loud under a live timer without cloud speech dependencies (100% offline & Linux compatible)"
+                >
+                  <Timer size={13} />
+                  <span>Verbal Out Loud Timer (Offline)</span>
+                </button>
+
+                <button
+                  type="button"
+                  className={`mode-btn ${practiceMode === 'mic' ? 'active' : ''}`}
+                  onClick={() => {
+                    setPracticeMode('mic')
+                    setSpeechError('')
+                  }}
+                  title="Automatic live speech-to-text dictation using browser cloud speech service"
+                >
+                  <Mic size={13} />
+                  <span>Speech-to-Text Dictation</span>
+                </button>
+              </div>
+
+              {practiceMode === 'timer' && (
+                <span className="offline-pill">
+                  <CheckCircle2 size={11} /> 100% Offline & Linux Compatible
+                </span>
+              )}
+            </div>
+
+            {/* Informative Speech Notice Banner if Speech Error */}
             {speechError && (
               <div className="speech-notice-banner">
-                <AlertCircle size={16} className="text-amber-400 shrink-0" />
+                <Info size={16} className="text-amber-400 shrink-0" />
                 <div className="speech-notice-text">
-                  <strong>Speech Network Notice:</strong>
+                  <strong>Linux/Chromium Notice:</strong>
                   <span>{speechError}</span>
                 </div>
                 <button
@@ -309,10 +381,12 @@ export default function VoicePractice({
                 <span>{formatTime(elapsedSeconds)}</span>
               </div>
 
-              {isRecording && (
+              {isRecording ? (
                 <div className="recording-indicator">
                   <span className="rec-dot pulse-dot" />
-                  <span>{verbalMode === 'timer_only' ? 'Speaking timer active...' : 'Listening...'}</span>
+                  <span>
+                    {practiceMode === 'timer' ? 'Speaking timer active...' : 'Listening to speech...'}
+                  </span>
                   <div className="voice-wave">
                     <span className="wave-bar" />
                     <span className="wave-bar" />
@@ -320,20 +394,11 @@ export default function VoicePractice({
                     <span className="wave-bar" />
                   </div>
                 </div>
+              ) : (
+                <span className="ready-indicator">
+                  Ready to practice
+                </span>
               )}
-
-              {/* Mode indicator */}
-              <div className="verbal-mode-indicator">
-                {verbalMode === 'timer_only' ? (
-                  <span className="mode-pill timer">
-                    <Timer size={12} /> Verbal Timer Mode
-                  </span>
-                ) : (
-                  <span className="mode-pill mic">
-                    <Mic size={12} /> Mic Active
-                  </span>
-                )}
-              </div>
             </div>
 
             {/* Answer Transcribed Textarea */}
@@ -342,10 +407,10 @@ export default function VoicePractice({
                 className="transcript-textarea custom-scrollbar"
                 placeholder={
                   isRecording
-                    ? verbalMode === 'timer_only'
-                      ? 'Timer is running! Speak your answer out loud. You can also jot down your key points here.'
-                      : 'Speak clearly into your microphone... your words will appear here in real-time.'
-                    : 'Click "Start Speaking" or type your spoken response here to evaluate...'
+                    ? practiceMode === 'timer'
+                      ? '⏱️ Timer is running! Speak your answer out loud right now. You can also jot down bullet points here as you speak.'
+                      : '🎙️ Speak clearly into your microphone... your words will appear here in real-time.'
+                    : 'Click "Start Speaking" or type your spoken response here, then click "Analyze My Answer" to view concept coverage...'
                 }
                 value={transcript}
                 onChange={e => setTranscript(e.target.value)}
@@ -358,11 +423,11 @@ export default function VoicePractice({
                 className={`mic-toggle-btn ${isRecording ? 'recording' : ''}`}
                 onClick={toggleRecording}
               >
-                {isRecording ? <Pause size={16} /> : verbalMode === 'timer_only' ? <Play size={16} /> : <Mic size={16} />}
+                {isRecording ? <Pause size={16} /> : practiceMode === 'timer' ? <Play size={16} /> : <Mic size={16} />}
                 <span>
                   {isRecording
-                    ? 'Stop Timer & Recording'
-                    : verbalMode === 'timer_only'
+                    ? 'Stop Timer'
+                    : practiceMode === 'timer'
                     ? 'Start Verbal Answer Timer'
                     : 'Start Speaking'}
                 </span>
@@ -380,7 +445,7 @@ export default function VoicePractice({
               <button
                 className="sample-text-btn"
                 onClick={handleSimulateSample}
-                title="Fill a simulated candidate answer to test the analyzer"
+                title="Fill a simulated candidate answer to test the concept analyzer"
               >
                 <Sparkles size={13} />
                 <span>Simulate Answer</span>
@@ -469,8 +534,14 @@ export default function VoicePractice({
               <Sparkles size={36} className="text-purple-400 opacity-60" />
               <h4>Ready to Evaluate Your Answer</h4>
               <p>
-                Speak or type your explanation of the technical question on the left, then click <strong>Analyze My Answer</strong> to view your concept coverage percentage, pace, and benchmark side-by-side.
+                Speak your explanation out loud under the timer or type your thoughts on the left, then click <strong>Analyze My Answer</strong> to view your concept coverage percentage, pace, and benchmark side-by-side.
               </p>
+              <button
+                className="subtle-sample-trigger"
+                onClick={handleSimulateSample}
+              >
+                <Sparkles size={13} /> Or test with a simulated answer
+              </button>
             </div>
           )}
         </div>
